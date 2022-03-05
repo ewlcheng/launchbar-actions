@@ -4,58 +4,90 @@ const redditUrl = "https://www.reddit.com";
 
 function run(argument) {
     if (argument == undefined) {
-        // Inform the user that there was no argument
         LaunchBar.alert("No argument was passed to the action");
+        return;
+    }
+
+    let query = null;
+    let sort = "";
+    if (typeof argument === "object") {
+        query = parseQuery(argument.query);
+        sort = argument.sort;
     } else {
-        let query = null;
-        let sort = "";
-        if (typeof argument === "object") {
-            query = parseQuery(argument.query);
-            sort = argument.sort;
-        } else {
-            query = parseQuery(argument);
-        }
+        query = parseQuery(argument);
+    }
 
-        const result = HTTP.getJSON(createSearchUrl(query.subreddit, true, query.query, "", 10, sort));
-        const searchUrl = createSearchUrl(query.subreddit, false, query.query, "", 0, sort);
+    const result = HTTP.getJSON(createSearchUrl(query.subreddit, true, query.query, "", 10, sort));
+    const searchUrl = createSearchUrl(query.subreddit, false, query.query, "", 0, sort);
 
-        if (result.data != undefined) {
-            if (result.data.data.children) {
-                const launchBarResults = [];
-                for (let i = 0; i < result.data.data.children.length; i++) {
-                    const data = result.data.data.children[i];
-                    launchBarResults.push({
-                        title: data.data.title,
-                        label: "r/" + data.data.subreddit,
-                        subtitle: "Posted " + new Date(data.data.created_utc * 1000).toLocaleString(),
-                        url: joinUrl(redditUrl, data.data.permalink),
-                    });
-                }
+    if (result.error != undefined) {
+        LaunchBar.alert("Unable to search Reddit", result.error);
+    }
 
-                if (launchBarResults.length) {
-                    launchBarResults.push({
-                        title: "Sort by...",
-                        children: [
-                            {
-                                title: "Relevance",
-                                action: "run",
-                                actionArgument: { query: argument, sort: "relevance" },
-                            },
-                            { title: "Hot", action: "run", actionArgument: { query: argument, sort: "hot" } },
-                            { title: "Top", action: "run", actionArgument: { query: argument, sort: "top" } },
-                            { title: "Latest", action: "run", actionArgument: { query: argument, sort: "new" } },
-                            { title: "Comments", action: "run", actionArgument: { query: argument, sort: "comments" } },
-                        ],
-                    });
-                }
+    if (result.data != undefined && result.data.data && result.data.data.children) {
+        const launchBarResults = [];
 
-                launchBarResults.push({ title: "Show all results on Reddit", url: searchUrl });
+        const thumbnailRequests = [];
+        for (let i = 0; i < result.data.data.children.length; i++) {
+            const data = result.data.data.children[i].data;
 
-                return launchBarResults;
+            if (data.thumbnail.startsWith("https://")) {
+                data.thumbnailRequestIndex = thumbnailRequests.length;
+                thumbnailRequests.push(HTTP.createGetDataRequest(data.thumbnail));
+            } else {
+                data.thumbnailRequestIndex = -1;
             }
-        } else if (result.error != undefined) {
-            LaunchBar.alert("Unable to search Reddit", result.error);
         }
+
+        const thumbnails = HTTP.loadRequests(thumbnailRequests);
+
+        for (let i = 0; i < result.data.data.children.length; i++) {
+            const data = result.data.data.children[i].data;
+
+            let thumbnail = "";
+            if (data.thumbnailRequestIndex > -1) {
+                const thumbnailResult = thumbnails[data.thumbnailRequestIndex];
+                if (thumbnailResult.response.status == 200 && thumbnailResult.data != undefined) {
+                    thumbnail = "data:image/png;base64," + thumbnailResult.data.toBase64String();
+                } else if (thumbnailResult.error != undefined) {
+                    LaunchBar.log("Unable to load the icon: " + data.thumbnail, thumbnailResult.error);
+                } else {
+                    LaunchBar.log(
+                        "Unable to load the icon: " + data.thumbnail,
+                        thumbnailResult.response.localizedStatus
+                    );
+                }
+            }
+
+            launchBarResults.push({
+                title: data.title,
+                label: "r/" + data.subreddit,
+                subtitle: "Posted " + new Date(data.created_utc * 1000).toLocaleString(),
+                url: joinUrl(redditUrl, data.permalink),
+                icon: thumbnail,
+            });
+        }
+
+        if (launchBarResults.length) {
+            launchBarResults.push({
+                title: "Sort by...",
+                children: [
+                    {
+                        title: "Relevance",
+                        action: "run",
+                        actionArgument: { query: argument, sort: "relevance" },
+                    },
+                    { title: "Hot", action: "run", actionArgument: { query: argument, sort: "hot" } },
+                    { title: "Top", action: "run", actionArgument: { query: argument, sort: "top" } },
+                    { title: "Latest", action: "run", actionArgument: { query: argument, sort: "new" } },
+                    { title: "Comments", action: "run", actionArgument: { query: argument, sort: "comments" } },
+                ],
+            });
+        }
+
+        launchBarResults.push({ title: "Show all results on Reddit", url: searchUrl });
+
+        return launchBarResults;
     }
 }
 
@@ -87,7 +119,11 @@ function createSearchUrl(subreddit = "", json = false, query = "", type = "", li
         url = joinUrl(url, subreddit);
     }
 
-    url = joinUrl(url, json ? "search.json" : "search");
+    if (query) {
+        url = joinUrl(url, json ? "search.json" : "search");
+    } else {
+        url = url + (json ? ".json" : "");
+    }
 
     if (subreddit || query || type || limit || sort) {
         const params = [];
