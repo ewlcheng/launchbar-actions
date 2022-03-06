@@ -4,13 +4,13 @@ function run(argument) {
     let appleScriptResult = LaunchBar.executeAppleScript(
         'tell application "System Events" to tell (process 1 where frontmost is true)',
         "	tell menu bar 1",
-        '		get every menu item of every menu of (every menu bar item whose name is not "Apple")',
+        '		return entire contents of menu bar items whose name is not "Apple"',
         "	end tell",
         "end tell"
     );
 
     const mainMenuBarItems = {};
-    let regex = /menu item (\w+.*) of menu (\w+.*) of menu bar item (\w+.*) of menu bar 1 of application process/;
+    let regex = /menu item (\w+.*?) of menu (\w+.*?) of menu bar item (\w+.*?) of menu bar 1 of application process/;
     let lines = appleScriptResult.split(",");
 
     for (let i = 0; i < lines.length; i++) {
@@ -18,48 +18,45 @@ function run(argument) {
 
         const matches = regex.exec(line);
         if (matches !== null) {
-            const mainMenuBarItemName = matches[2];
+            const mainMenuBarItemName = matches[3];
             const menuItemName = matches[1];
             if (!isNaN(menuItemName)) {
                 continue;
             }
 
-            if (!(mainMenuBarItemName in mainMenuBarItems)) {
-                mainMenuBarItems[mainMenuBarItemName] = {};
-            }
-
-            mainMenuBarItems[mainMenuBarItemName][menuItemName] = [];
-        }
-    }
-
-    appleScriptResult = LaunchBar.executeAppleScript(
-        'tell application "System Events" to tell (process 1 where frontmost is true)',
-        "	tell menu bar 1",
-        '		get every menu item of every menu of every menu item of every menu of (every menu bar item whose name is not "Apple")',
-        "	end tell",
-        "end tell"
-    );
-
-    regex =
-        /menu item (\w+.*) of menu (\w+.*) of menu item (\w+.*) of menu (\w+.*) of menu bar item (\w+.*) of menu bar 1 of application process/;
-    lines = appleScriptResult.split(",");
-
-    for (let i = 0; i < lines.length; i++) {
-        const line = lines[i];
-        if (!line) {
-            continue;
-        }
-
-        const matches = regex.exec(line);
-        if (matches !== null) {
-            const mainMenuBarItemName = matches[4];
-            const menuItemName = matches[2];
-            const menuItem2Name = matches[1];
-            if (!isNaN(menuItem2Name)) {
+            if (!line) {
                 continue;
             }
 
-            mainMenuBarItems[mainMenuBarItemName][menuItemName].push(menuItem2Name);
+            if (!line.trim().startsWith("menu item ")) {
+                continue;
+            }
+
+            if (!(mainMenuBarItemName in mainMenuBarItems)) {
+                mainMenuBarItems[mainMenuBarItemName] = [];
+            }
+
+            const middleLevels = matches[2];
+            if (middleLevels.indexOf(" of menu item ") < 0) {
+                mainMenuBarItems[mainMenuBarItemName].push(menuItemName);
+            } else {
+                let middleLevelsLine = middleLevels;
+                let startIndex = 0;
+                let index = middleLevelsLine.indexOf(" of menu item ");
+                let previousMenuItem = menuItemName;
+
+                while (index >= 0) {
+                    const menuItem = {};
+                    menuItem[middleLevelsLine.substring(startIndex, index).trim()] = previousMenuItem;
+
+                    middleLevelsLine = middleLevelsLine.substring(index + " of menu item ".length);
+                    startIndex = middleLevelsLine.indexOf(" of menu ") + " of menu ".length;
+                    index = middleLevelsLine.indexOf(" of menu item ");
+                    previousMenuItem = menuItem;
+                }
+
+                mainMenuBarItems[mainMenuBarItemName].push(previousMenuItem);
+            }
         }
     }
 
@@ -68,26 +65,9 @@ function run(argument) {
         if (Object.hasOwnProperty.call(mainMenuBarItems, key)) {
             const mainMenuBarItem = mainMenuBarItems[key];
 
-            for (const menuItemKey in mainMenuBarItem) {
-                if (Object.hasOwnProperty.call(mainMenuBarItem, menuItemKey)) {
-                    const menuItems = mainMenuBarItem[menuItemKey];
-                    if (menuItems.length) {
-                        for (let i = 0; i < menuItems.length; i++) {
-                            const menuItem = menuItems[i];
-                            results.push({
-                                title: key + " > " + menuItemKey + " > " + menuItem,
-                                action: "click",
-                                actionArgument: { menuBarItem: key, menuItem: menuItemKey, menuItem2: menuItem },
-                            });
-                        }
-                    } else {
-                        results.push({
-                            title: key + " > " + menuItemKey,
-                            action: "click",
-                            actionArgument: { menuBarItem: key, menuItem: menuItemKey },
-                        });
-                    }
-                }
+            for (let i = 0; i < mainMenuBarItem.length; i++) {
+                const element = mainMenuBarItem[i];
+                buildLaunchBarResults(results, { title: key, levels: [key] }, element);
             }
         }
     }
@@ -95,27 +75,56 @@ function run(argument) {
     return results;
 }
 
+function buildLaunchBarResults(results, parent, item) {
+    if (typeof item === "string") {
+        const levels = parent.levels;
+        levels.push(item);
+
+        return results.push({
+            title: parent.title + " > " + item,
+            action: "click",
+            actionArgument: { levels: levels },
+        });
+    } else {
+        for (const key in item) {
+            if (Object.hasOwnProperty.call(item, key)) {
+                const menuItem = item[key];
+                parent.title = parent.title + " > " + key;
+                parent.levels.push(key);
+
+                buildLaunchBarResults(results, parent, menuItem);
+            }
+        }
+    }
+}
+
 function click(data) {
     LaunchBar.hide();
 
-    if ("menuItem2" in data) {
-        LaunchBar.executeAppleScript(
-            'tell application "System Events" to tell (process 1 where frontmost is true)',
-            `    tell menu bar item "${data.menuBarItem}" of menu bar 1`,
-            "        click",
-            `        click menu item "${data.menuItem}" of menu 1`,
-            `        click menu item "${data.menuItem2}" of menu 1 of menu item "${data.menuItem}" of menu 1`,
-            "    end tell",
-            "end tell"
-        );
-    } else {
-        LaunchBar.executeAppleScript(
-            'tell application "System Events" to tell (process 1 where frontmost is true)',
-            `    tell menu bar item "${data.menuBarItem}" of menu bar 1`,
-            "        click",
-            `        click menu item "${data.menuItem}" of menu 1`,
-            "    end tell",
-            "end tell"
-        );
+    let appleScript =
+        'tell application "System Events" to tell (process 1 where frontmost is true) \n' +
+        `    tell menu bar item "${data.levels[0]}" of menu bar 1 \n` +
+        "        click \n" +
+        `        click menu item "${data.levels[1]}" of menu 1 \n`;
+
+    for (let i = 2; i < data.levels.length; i++) {
+        let menuOfMenu = "";
+        let isFirst = true;
+        for (let j = i; j > 1; j--) {
+            const current = data.levels[j];
+            const previous = data.levels[j - 1];
+            if (isFirst) {
+                menuOfMenu += `"${current}" of menu 1 of menu item "${previous}"`;
+                isFirst = false;
+            } else {
+                menuOfMenu += ` of menu 1 of menu item "${previous}"`;
+            }
+        }
+
+        appleScript += `        click menu item ${menuOfMenu} of menu 1 \n`;
     }
+
+    appleScript += "    end tell \n" + "end tell";
+
+    LaunchBar.executeAppleScript(appleScript);
 }
