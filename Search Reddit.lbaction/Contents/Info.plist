@@ -5,7 +5,7 @@
 	<key>CFBundleIconFile</key>
 	<string>reddit_icon_512.png</string>
 	<key>CFBundleIdentifier</key>
-	<string>com.yourcompany.LaunchBar.action.SearchReddit</string>
+	<string>com.ewlcheng.LaunchBar.action.SearchReddit</string>
 	<key>CFBundleName</key>
 	<string>Search Reddit</string>
 	<key>LBDescription</key>
