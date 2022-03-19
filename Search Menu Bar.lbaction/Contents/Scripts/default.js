@@ -10,53 +10,64 @@ function run(argument) {
     );
 
     const mainMenuBarItems = {};
-    let regex = /menu item (\w+.*?) of menu (\w+.*?) of menu bar item (\w+.*?) of menu bar 1 of application process/;
     let lines = appleScriptResult.split(",");
 
     for (let i = 0; i < lines.length; i++) {
-        const line = lines[i];
+        const line = lines[i].trim();
 
-        const matches = regex.exec(line);
-        if (matches !== null) {
-            const mainMenuBarItemName = matches[3];
-            const menuItemName = matches[1];
-            if (!isNaN(menuItemName)) {
-                continue;
+        if (!line.startsWith("menu item ")) {
+            continue;
+        }
+
+        if (line.indexOf(" of menu bar 1 of application") < 0) {
+            continue;
+        }
+
+        const mainMenuBarItemName = line.substring(
+            line.indexOf(" of menu bar item ") + " of menu bar item ".length,
+            line.indexOf(" of menu bar 1 of application")
+        );
+
+        const menuItemName = line.substring("menu item ".length, line.indexOf(" of menu "));
+        if (!isNaN(menuItemName)) {
+            continue;
+        }
+
+        if (!line) {
+            continue;
+        }
+
+        if (!line.trim().startsWith("menu item ")) {
+            continue;
+        }
+
+        if (!(mainMenuBarItemName in mainMenuBarItems)) {
+            mainMenuBarItems[mainMenuBarItemName] = [];
+        }
+
+        const middleLevels = line.substring(
+            line.indexOf(" of menu ") + " of menu ".length,
+            line.indexOf(" of menu bar item ")
+        );
+        if (middleLevels.indexOf(" of menu item ") < 0) {
+            mainMenuBarItems[mainMenuBarItemName].push(menuItemName);
+        } else {
+            let middleLevelsLine = middleLevels;
+            let startIndex = 0;
+            let index = middleLevelsLine.indexOf(" of menu item ");
+            let previousMenuItem = menuItemName;
+
+            while (index >= 0) {
+                const menuItem = {};
+                menuItem[middleLevelsLine.substring(startIndex, index).trim()] = previousMenuItem;
+
+                middleLevelsLine = middleLevelsLine.substring(index + " of menu item ".length);
+                startIndex = middleLevelsLine.indexOf(" of menu ") + " of menu ".length;
+                index = middleLevelsLine.indexOf(" of menu item ");
+                previousMenuItem = menuItem;
             }
 
-            if (!line) {
-                continue;
-            }
-
-            if (!line.trim().startsWith("menu item ")) {
-                continue;
-            }
-
-            if (!(mainMenuBarItemName in mainMenuBarItems)) {
-                mainMenuBarItems[mainMenuBarItemName] = [];
-            }
-
-            const middleLevels = matches[2];
-            if (middleLevels.indexOf(" of menu item ") < 0) {
-                mainMenuBarItems[mainMenuBarItemName].push(menuItemName);
-            } else {
-                let middleLevelsLine = middleLevels;
-                let startIndex = 0;
-                let index = middleLevelsLine.indexOf(" of menu item ");
-                let previousMenuItem = menuItemName;
-
-                while (index >= 0) {
-                    const menuItem = {};
-                    menuItem[middleLevelsLine.substring(startIndex, index).trim()] = previousMenuItem;
-
-                    middleLevelsLine = middleLevelsLine.substring(index + " of menu item ".length);
-                    startIndex = middleLevelsLine.indexOf(" of menu ") + " of menu ".length;
-                    index = middleLevelsLine.indexOf(" of menu item ");
-                    previousMenuItem = menuItem;
-                }
-
-                mainMenuBarItems[mainMenuBarItemName].push(previousMenuItem);
-            }
+            mainMenuBarItems[mainMenuBarItemName].push(previousMenuItem);
         }
     }
 
@@ -101,30 +112,18 @@ function buildLaunchBarResults(results, parent, item) {
 function click(data) {
     LaunchBar.hide();
 
-    let appleScript =
-        'tell application "System Events" to tell (process 1 where frontmost is true) \n' +
-        `    tell menu bar item "${data.levels[0]}" of menu bar 1 \n` +
-        "        click \n" +
-        `        click menu item "${data.levels[1]}" of menu 1 \n`;
-
-    for (let i = 2; i < data.levels.length; i++) {
-        let menuOfMenu = "";
-        let isFirst = true;
-        for (let j = i; j > 1; j--) {
-            const current = data.levels[j];
-            const previous = data.levels[j - 1];
-            if (isFirst) {
-                menuOfMenu += `"${current}" of menu 1 of menu item "${previous}"`;
-                isFirst = false;
-            } else {
-                menuOfMenu += ` of menu 1 of menu item "${previous}"`;
-            }
+    let appleScript = 'tell application "System Events" to tell (process 1 where frontmost is true) \n';
+    for (let i = data.levels.length - 1; i >= 0; i--) {
+        if (i === data.levels.length - 1) {
+            appleScript += `    click menu item "${data.levels[i]}" of menu 1 `;
+        } else if (i === 0) {
+            appleScript += `of menu bar item "${data.levels[i]}" of menu bar 1 \n`;
+        } else {
+            appleScript += `of menu item "${data.levels[i]}" of menu 1 `;
         }
-
-        appleScript += `        click menu item ${menuOfMenu} of menu 1 \n`;
     }
 
-    appleScript += "    end tell \n" + "end tell";
+    appleScript += "end tell";
 
     LaunchBar.executeAppleScript(appleScript);
 }
