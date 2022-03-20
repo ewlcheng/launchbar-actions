@@ -9,30 +9,29 @@ function run(argument) {
         "end tell"
     );
 
-    const mainMenuBarItems = {};
-    const lines = appleScriptResult.split(",");
+    const lines = appleScriptResult.split(", menu item ");
 
+    const results = [];
     for (let i = 0; i < lines.length; i++) {
         const line = lines[i].trim();
 
-        if (!line.startsWith("menu item ")) {
-            continue;
-        }
-
-        if (line.indexOf(" of menu bar 1 of application") < 0) {
+        const menuBar1Index = line.indexOf(" of menu bar 1 of application");
+        if (menuBar1Index < 0) {
             continue;
         }
 
         const mainMenuBarItemName = line.substring(
             line.indexOf(" of menu bar item ") + " of menu bar item ".length,
-            line.indexOf(" of menu bar 1 of application")
+            menuBar1Index
         );
 
         if (mainMenuBarItemName === "Apple") {
             continue;
         }
 
-        const menuItemName = line.substring("menu item ".length, line.indexOf(" of menu "));
+        const menuItemName = line.startsWith("menu item ")
+            ? line.substring("menu item ".length, line.indexOf(" of menu "))
+            : line.substring(0, line.indexOf(" of menu "));
         if (!isNaN(menuItemName)) {
             continue;
         }
@@ -41,78 +40,45 @@ function run(argument) {
             continue;
         }
 
-        if (!line.trim().startsWith("menu item ")) {
-            continue;
-        }
-
-        if (!(mainMenuBarItemName in mainMenuBarItems)) {
-            mainMenuBarItems[mainMenuBarItemName] = [];
-        }
-
         const middleLevels = line.substring(
             line.indexOf(" of menu ") + " of menu ".length,
             line.indexOf(" of menu bar item ")
         );
         if (middleLevels.indexOf(" of menu item ") < 0) {
-            mainMenuBarItems[mainMenuBarItemName].push(menuItemName);
+            results.push({
+                title: mainMenuBarItemName + " > " + menuItemName,
+                icon: "iconTemplate",
+                action: "click",
+                actionArgument: { levels: [mainMenuBarItemName, menuItemName] },
+                actionRunsInBackground: true,
+            });
         } else {
             let middleLevelsLine = middleLevels;
             let startIndex = 0;
             let index = middleLevelsLine.indexOf(" of menu item ");
-            let previousMenuItem = menuItemName;
 
+            const levels = [menuItemName];
             while (index >= 0) {
-                const menuItem = {};
-                menuItem[middleLevelsLine.substring(startIndex, index).trim()] = previousMenuItem;
+                levels.splice(0, 0, middleLevelsLine.substring(startIndex, index).trim());
 
                 middleLevelsLine = middleLevelsLine.substring(index + " of menu item ".length);
                 startIndex = middleLevelsLine.indexOf(" of menu ") + " of menu ".length;
                 index = middleLevelsLine.indexOf(" of menu item ");
-                previousMenuItem = menuItem;
             }
 
-            mainMenuBarItems[mainMenuBarItemName].push(previousMenuItem);
-        }
-    }
+            levels.splice(0, 0, mainMenuBarItemName);
 
-    const results = [];
-    for (const key in mainMenuBarItems) {
-        if (Object.hasOwnProperty.call(mainMenuBarItems, key)) {
-            const mainMenuBarItem = mainMenuBarItems[key];
-
-            for (let i = 0; i < mainMenuBarItem.length; i++) {
-                const element = mainMenuBarItem[i];
-                buildLaunchBarResults(results, { title: key, levels: [key] }, element);
-            }
+            results.push({
+                title: levels.join(" > "),
+                icon: "iconTemplate",
+                action: "click",
+                actionArgument: { levels: levels },
+                actionRunsInBackground: true,
+            });
         }
     }
 
     return results;
-}
-
-function buildLaunchBarResults(results, parent, item) {
-    if (typeof item === "string") {
-        const levels = parent.levels;
-        levels.push(item);
-
-        return results.push({
-            title: parent.title + " > " + item,
-            icon: "iconTemplate",
-            action: "click",
-            actionArgument: { levels: levels },
-            actionRunsInBackground: true,
-        });
-    } else {
-        for (const key in item) {
-            if (Object.hasOwnProperty.call(item, key)) {
-                const menuItem = item[key];
-                parent.title = parent.title + " > " + key;
-                parent.levels.push(key);
-
-                buildLaunchBarResults(results, parent, menuItem);
-            }
-        }
-    }
 }
 
 function click(data) {
